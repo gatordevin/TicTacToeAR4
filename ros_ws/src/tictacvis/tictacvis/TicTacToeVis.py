@@ -70,17 +70,12 @@ class TicTacToe(Node):
 
         self.mutex.release()
 
-
     # Parse AI message and update grid
     def ai_callback(self, ai_msg):
-        # TODO what is format of Int32 returned by ai node?
-        for row in range(3):
-            for col in range(3):
-                self.grid[row][col] = ai_msg[col + (row*3)]
-
-        row = ai_msg // 3
-        col = ai_msg % 3
-        self.grid[row][col]
+        ind = ai_msg.data - 1
+        row = ind // 3
+        col = ind % 3
+        self.grid[row][col] = 'X'
 
     def setgrid(self, row, col, player):
         self.grid[row][col] = player
