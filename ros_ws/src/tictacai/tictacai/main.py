@@ -2,16 +2,21 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32
 from std_msgs.msg import String
+import os
 
-from gym_tictactoe.examples.td_agent import load_model
-from gym_tictactoe.gym_tictactoe.env import TicTacToeEnv
+# from gym_tictactoe.examples.td_agent import load_model
+# from gym_tictactoe.gym_tictactoe.env import TicTacToeEnv
 
+from .td_agent import load_model
+from gym_tictactoe.env import TicTacToeEnv
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'best_td_agent.dat')
 
 class MinimalPublisher(Node):
 
     def __init__(self):
         super().__init__("ai_node")
-        self.agent = load_model("gym_tictactoe/examples/best_td_agent.dat")
+        self.agent = load_model(MODEL_PATH)
 
         self.publisher_ = self.create_publisher(Int32, "action", 10)
         self.subscription = self.create_subscription(
@@ -20,7 +25,7 @@ class MinimalPublisher(Node):
 
     def parsemsg(self, msgstr):
         outarr = [msgstr[0], msgstr[1], msgstr[2],
-                  msgstr[3], msgstr[4], msgstr[5]
+                  msgstr[3], msgstr[4], msgstr[5],
                   msgstr[6], msgstr[7], msgstr[8]]
         outturn = msgstr[9]
         return (outarr, outturn)

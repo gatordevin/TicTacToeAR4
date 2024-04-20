@@ -1,11 +1,18 @@
 from setuptools import find_packages, setup
+import os
+import glob
 
 package_name = 'tictacai'
+
+pthlist = [(os.path.join('share', package_name, os.path.split(path)[0]), [path]) for path in glob.glob('resource/**', recursive=True)]
 
 setup(
     name=package_name,
     version='0.0.0',
     packages=find_packages(exclude=['test']),
+    package_data={
+        "tictacai": ["*.dat"]
+    },
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
