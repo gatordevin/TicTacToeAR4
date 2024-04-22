@@ -49,6 +49,12 @@ class TicTacToe(Node):
             Int32, 'action', self.ai_callback, 10
         )
 
+        # Subscribe to player topic
+        # This allows for manual board updates for testing
+        self.play_sub = self.create_subscription(
+            String, 'vis/player', self.player_callback, 10
+        )
+
         # Publisher for update topic
         # Sends messages to AI
         self.update_pub = self.create_publisher(
@@ -147,7 +153,7 @@ class TicTacToe(Node):
         print("Message from AI: {}".format(ai_msg.data))
 
         # Index validation
-        ind = ai_msg.data - 1
+        ind = ai_msg.data
 
         if(ind < 0 or ind > 8):
             print("Invalid index. Ignoring message.")
@@ -158,14 +164,44 @@ class TicTacToe(Node):
         print("Updating row {}, column {} with X".format(row, col))
         self.grid[row][col] = 'X'
         self.printgrid()
+        ret = self.check_game_status()
+        print("Return code: {}".format(ret))
+
+    # Manual board updates for testing
+    def player_callback(self, plr_msg):
+        msg_str = plr_msg.data
+        print("Message from Player: {}, len: ".format(msg_str, len(msg_str)))
+
+        # Parse message
+        row = int(msg_str[0])
+        col = int(msg_str[1])
+        player = msg_str[2]
+
+        print(row)
+        print(col)
+        print(player)
+
+        if(player != 'X' and player != 'O'):
+            print("Invalid character. Ignoring message...")
+            return
+
+        # Update grid
+        self.grid[row][col] = player
+
+        ret = self.check_game_status()
+        print("Return code: {}".format(ret))
+
+        # Print for debug
+        print("Updating row {}, column {} with {}".format(row, col, player))
+        self.printgrid()
+
+        # Send to AI node
+        self.sendgrid()
 
     # Wrapper for reset function
     def reset_callback(self, rst_msg):
         print("Resetting board...")
         self.resetgrid()
-
-    def setgrid(self, row, col, player):
-        self.grid[row][col] = player
 
     def setwarp(self, pts):
         self.wrp_pts = pts
@@ -181,7 +217,7 @@ class TicTacToe(Node):
         print("---------")
         print("{} | {} | {}".format(self.grid[2][0], self.grid[2][1], self.grid[2][2]))
 
-    def sendgrid(self, player='O'):
+    def sendgrid(self, player='X'):
         # Concatenate array and player into flat string
         output = "{}{}{}{}{}{}{}{}{}{}".format(self.grid[0][0],self.grid[0][1],self.grid[0][2],
                                                self.grid[1][0],self.grid[1][1],self.grid[1][2],
@@ -242,6 +278,29 @@ class TicTacToe(Node):
             return img_bin[(slc_x*min_row):(slc_x*(min_row+1)),(slc_y*min_col):(slc_y*(min_col+1))]
         else:
             return np.zeros(20,20).astype(np.uint8)
+
+    def check_game_status(self):
+        for t in ["X", "O"]:
+            # Rows
+            for j in range(0, 3):
+                if [t] * 3 == self.grid[j][:]:
+                    return t
+            for j in range(0, 3):
+                if self.grid[0][j] == t and self.grid[1][j] == t and self.grid[2][j]== t:
+                    return t
+            if self.grid[0][0] == t and self.grid[1][1] == t and self.grid[2][2] == t:
+                return t
+            if self.grid[0][2] == t and self.grid[1][1] == t and self.grid[2][0] == t:
+                return t
+
+        for i in range(3):
+            for j in range(3):
+                if self.grid[i][j] == " ":
+                    # still playing
+                    return -1
+
+        # draw game
+        return 0
 
 def main(args=None):
     rclpy.init(args=None)

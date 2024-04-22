@@ -7,7 +7,7 @@ import os
 # from gym_tictactoe.examples.td_agent import load_model
 # from gym_tictactoe.gym_tictactoe.env import TicTacToeEnv
 
-from .td_agent import load_model
+from .td_agent import load_model, TDAgent
 from gym_tictactoe.env import TicTacToeEnv
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'best_td_agent.dat')
@@ -16,7 +16,8 @@ class MinimalPublisher(Node):
 
     def __init__(self):
         super().__init__("ai_node")
-        self.agent = load_model(MODEL_PATH)
+        print("Loaded model file: {}".format(MODEL_PATH))
+        self.model = load_model(MODEL_PATH)
 
         self.publisher_ = self.create_publisher(Int32, "action", 10)
         self.subscription = self.create_subscription(
@@ -31,25 +32,35 @@ class MinimalPublisher(Node):
         return (outarr, outturn)
 
     def play(self, msg):
-        # Read board and turn from message
-        env.board, turn = parsemsg(msg.data)
-        if turn != 1:
-            # Return if not robot turn
-            # TODO how to align with CV node?
-            return
-
         # Create environment from board and turn
         env = TicTacToeEnv()
         env.reset()
         env.start_mark = "X"
 
+        # Read board and turn from message
+        board_char, turn_char = self.parsemsg(msg.data)
+        print("Received message: {}".format(msg.data))
+        board_int = list([1 if i=="O" else 2 if i=="X" else 0 for i in board_char])
+        env.board = board_int
+
+        if turn_char != "X":
+            print("Invalid turn character. Ignoring message...")
+            # Return if not robot turn
+            return
+
+        td_agent = TDAgent('X', 0, 0)  # prevent exploring
+
+        ava = env.available_actions()
+
         # Choose action
-        action = self.agent.act(
-            (env.board, env.start_mark), env.available_actions()
+        action = td_agent.act(
+            (env.board, env.start_mark), ava
         )
 
         # Publish that action
-        self.publisher_.publish(action)
+        action_msg = Int32()
+        action_msg.data = action
+        self.publisher_.publish(action_msg)
 
 
 def main(args=None):
