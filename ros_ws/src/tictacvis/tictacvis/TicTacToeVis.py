@@ -9,6 +9,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from std_msgs.msg import Int32
+from std_msgs.msg import Int32MultiArray
 
 from threading import Lock
 
@@ -17,13 +18,21 @@ class TicTacToe(Node):
         # Local vars
         self.grid = [[' ',' ',' '],[' ',' ',' '],[' ',' ',' ']]
         #self.wrp_pts = np.float32([[0,0],[300,0],[0,300],[300,300]])
-        self.wrp_pts = np.float32([[213,56],[504,51],[210,302],[573,309]])
+        self.wrp_pts = np.float32([[119,209],[321,205],[60,350],[365,372]])
         self.mutex = Lock()
+        self.wrpmx = Lock()
         self.bridge = CvBridge()
         self.update_ready = False
+        self.ended = False
 
         # Init ROS node
         super().__init__('vis_node')
+
+        self.declare_parameter('camera', '/image_raw')
+        cam_topic = self.get_parameter('camera').get_parameter_value().string_value
+
+        self.declare_parameter('mode', 'real')
+        vis_mode = self.get_parameter('mode').get_parameter_value().string_value
 
         # Subscribe to button topic
         # Should be triggered on button press
@@ -39,9 +48,14 @@ class TicTacToe(Node):
 
         # Camera Topic
         # Repeatedly receives data from camera but should only be used after a button press
-        self.camera_sub = self.create_subscription(
-            Image, 'image_raw', self.real_camera_callback, 10
-        )
+        if vis_mode == 'real':
+            self.camera_sub = self.create_subscription(
+                Image, cam_topic, self.real_camera_callback, 10
+            )
+        else:
+            self.camera_sub = self.create_subscription(
+                Image, cam_topic, self.test_camera_callback, 10
+            )
 
         # Subscribe to update topic
         # Receives messages from AI
@@ -53,6 +67,12 @@ class TicTacToe(Node):
         # This allows for manual board updates for testing
         self.play_sub = self.create_subscription(
             String, 'vis/player', self.player_callback, 10
+        )
+
+        # Subscribe to corner topic
+        # This allows for the unwarping to be dynamically updated
+        self.corn_sub = self.create_subscription(
+            Int32MultiArray, 'vis/corners', self.corner_callback, 10
         )
 
         # Publisher for update topic
@@ -72,6 +92,15 @@ class TicTacToe(Node):
         self.mutex.acquire()
         self.update_ready = True
         self.mutex.release()
+
+    def corner_callback(self, corn_msg):
+        print("Received corner update:")
+        corns = corn_msg.data
+        corns = np.array(corns).reshape(4,2)
+        print(corns)
+        self.wrpmx.acquire()
+        self.wrp_pts = corns.astype(np.float32)
+        self.wrpmx.release()
 
     # Convert message to OpenCV image and call update func
     def real_camera_callback(self, img_msg):
@@ -108,13 +137,7 @@ class TicTacToe(Node):
                     #imOut = imOut.astype(np.uint8)
                     #print(imOut.shape)
 
-                    imOut = self.checkupdate(imCV)
-
-                    # Convert to rgb
-                    imRGB = cv2.cvtColor(imOut, cv2.COLOR_GRAY2BGR)
-
-                    imMsg = self.bridge.cv2_to_imgmsg(imRGB, "bgr8")
-                    self.cam_pub.publish(imMsg)
+                    imOut = self.checkupdate(imCV, False)
 
         except CvBridgeError as e:
             print(e)
@@ -164,47 +187,64 @@ class TicTacToe(Node):
         print("Updating row {}, column {} with X".format(row, col))
         self.grid[row][col] = 'X'
         self.printgrid()
+
         ret = self.check_game_status()
-        print("Return code: {}".format(ret))
+        if(ret != -1):
+            if ret == 0:
+                print("Game ends in a draw.")
+            else:
+                print("{} is the winner!".format(ret))
+
+            self.ended = True
 
     # Manual board updates for testing
     def player_callback(self, plr_msg):
+        # Don't update if game is over
+        if self.ended == True:
+            print("Game has ended. Please reset to continue.")
+            return
+
         msg_str = plr_msg.data
-        print("Message from Player: {}, len: ".format(msg_str, len(msg_str)))
+        print("Message from Player: {}".format(msg_str))
 
         # Parse message
         row = int(msg_str[0])
         col = int(msg_str[1])
         player = msg_str[2]
 
-        print(row)
-        print(col)
-        print(player)
+        if(player == 'X' or player == 'O'):
+            # Update grid
+            self.grid[row][col] = player
 
-        if(player != 'X' and player != 'O'):
-            print("Invalid character. Ignoring message...")
-            return
+            # Print for debug
+            print("Updating row {}, column {} with {}".format(row, col, player))
+            self.printgrid()
 
-        # Update grid
-        self.grid[row][col] = player
+            ret = self.check_game_status()
+            if(ret != -1):
+                if ret == 0:
+                    print("Game ends in a draw.")
+                else:
+                    print("{} is the winner!".format(ret))
 
-        ret = self.check_game_status()
-        print("Return code: {}".format(ret))
+                self.ended = True
 
-        # Print for debug
-        print("Updating row {}, column {} with {}".format(row, col, player))
-        self.printgrid()
+                return # Do not update further
 
-        # Send to AI node
-        self.sendgrid()
+            # Send to AI node
+            self.sendgrid()
+        else:
+            self.grid[row][col] = " "
+
+            # Print for debug
+            print("Clearing row {}, column {}".format(row, col))
+            self.printgrid()
 
     # Wrapper for reset function
     def reset_callback(self, rst_msg):
         print("Resetting board...")
+        self.ended = False
         self.resetgrid()
-
-    def setwarp(self, pts):
-        self.wrp_pts = pts
 
     def resetgrid(self):
         self.grid = [[' ',' ',' '],[' ',' ',' '],[' ',' ',' ']]
@@ -231,13 +271,27 @@ class TicTacToe(Node):
     def straighten(self, img):
         out_pts = np.float32([[0,0], [300,0], [0,300], [300,300]])
 
+        self.wrpmx.acquire()
         wrp_mat = cv2.getPerspectiveTransform(self.wrp_pts, out_pts)
+        self.wrpmx.release()
         img_out = cv2.warpPerspective(img, wrp_mat, (300,300), flags=cv2.INTER_LINEAR)
         return img_out
 
-    def checkupdate(self, img):
+    def checkupdate(self, img, update=True):
         # Preprocess image
         img_bin = self.preproc(img)
+
+        # Convert to rgb
+        imRGB = cv2.cvtColor(img_bin, cv2.COLOR_GRAY2BGR)
+        cv2.imwrite("out.png",imRGB)
+
+        # imMsg = self.bridge.cv2_to_imgmsg(img_bin, "bgr8")
+        # self.cam_pub.publish(imMsg)
+
+        # Don't update if game is over
+        if self.ended == True:
+            print("Game has ended. Please reset to continue.")
+            return
 
         # Get size of slice
         slc_x = np.uint16(np.floor(np.shape(img_bin)[0] / 3))
@@ -253,6 +307,15 @@ class TicTacToe(Node):
                     # Get image slice
                     cell = img_bin[(slc_x*row):(slc_x*(row+1)),(slc_y*col):(slc_y*(col+1))]
 
+                    # White out border
+                    # # cell[:10,:] = 0
+                    # # cell[290:,:] = 0
+                    # # cell[:,:10] = 0
+                    # # cell[:,290:] = 0
+                    # cell_crop = cell[15:285,15:285]
+
+                    cv2.imwrite("{}_{}.png".format(row, col), cell)
+
                     # Sum elements of slice
                     total_wht = np.sum(cell) / 255
 
@@ -267,17 +330,31 @@ class TicTacToe(Node):
             # Update grid
             self.grid[min_row][min_col] = 'O'
 
-            # Undo for testing
+            # Debug message
             print("New detected grid:")
             self.printgrid()
-            self.grid[min_row][min_col] = ' '
+
+            ret = self.check_game_status()
+            if(ret != -1):
+                if ret == 0:
+                    print("Game ends in a draw.")
+                else:
+                    print("{} is the winner!".format(ret))
+
+                self.ended = True
+
+                return # Do not update further
+
+
+            if not update:
+                self.grid[min_row][min_col] = ' '
 
             # Send message
             self.sendgrid()
             
-            return img_bin[(slc_x*min_row):(slc_x*(min_row+1)),(slc_y*min_col):(slc_y*(min_col+1))]
+            return #img_bin[(slc_x*min_row):(slc_x*(min_row+1)),(slc_y*min_col):(slc_y*(min_col+1))]
         else:
-            return np.zeros(20,20).astype(np.uint8)
+            return #np.zeros(20,20).astype(np.uint8)
 
     def check_game_status(self):
         for t in ["X", "O"]:

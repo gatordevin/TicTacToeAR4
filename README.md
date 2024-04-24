@@ -1,9 +1,5 @@
 # TicTacToeAR4
 
-## TODO
-- Test to make sure ai node reads the string from the vis node properly and actually works
-- Find a better way to trigger a board update
-
 ## Running the Nodes
 
 ### AI Node
@@ -11,4 +7,8 @@
 
 ### Vision Node
 `ros2 run tictacvis exec`
-To trigger a board update, run the `sendgo.sh` script in other terminal
+To trigger a board update, reset the board, make a move manually, etc., use the `user_control.py` script.
+To update the corners for the vision node, use the `getcorners.py` script.
+
+
+Generally, you will want to run the AI node and the Vision node together before you begin calling for updates.
