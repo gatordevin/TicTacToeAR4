@@ -18,7 +18,7 @@ class CamNode(Node):
         # Camera Topic
         # Repeatedly receives data from camera but should only be used after a button press
         self.camera_sub = self.create_subscription(
-            Image, '/image_raw', self.cam_callback, 10
+            Image, '/color/image_raw', self.cam_callback, 10
         )
 
         # Subscribe to corner topic

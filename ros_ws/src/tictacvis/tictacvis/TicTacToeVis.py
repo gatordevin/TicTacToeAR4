@@ -28,7 +28,7 @@ class TicTacToe(Node):
         # Init ROS node
         super().__init__('vis_node')
 
-        self.declare_parameter('camera', '/image_raw')
+        self.declare_parameter('camera', '/color/image_raw')
         cam_topic = self.get_parameter('camera').get_parameter_value().string_value
 
         self.declare_parameter('mode', 'real')
